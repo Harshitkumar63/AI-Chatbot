@@ -1,0 +1,60 @@
+# ============================================
+# AI Chatbot — .gitignore
+# ============================================
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ---- Virtual Environment ----
+venv/
+.venv/
+env/
+ENV/
+
+# ---- Environment Variables (NEVER commit secrets!) ----
+.env
+.env.local
+.env.production
+
+# ---- IDE ----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ---- Runtime Data ----
+backend/data/uploads/*
+backend/data/vector_store/*
+backend/data/*.db
+!backend/data/uploads/.gitkeep
+!backend/data/vector_store/.gitkeep
+
+# ---- Node.js ----
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# ---- Docker ----
+docker-compose.override.yml
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- Logs ----
+*.log
+logs/
+
+# ---- Testing ----
+.coverage
+htmlcov/
+.pytest_cache/

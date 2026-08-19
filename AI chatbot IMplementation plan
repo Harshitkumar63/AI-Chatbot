@@ -1,0 +1,612 @@
+# Production-Quality AI Chatbot — Complete Architecture & Implementation Plan
+
+> **For:** Harsh (1st year B.Tech CSE)  
+> **Goal:** Build a production-grade AI chatbot with RAG, chat history, streaming, and PDF ingestion — ready for integration into an educational website.
+
+---
+
+## Table of Contents
+
+1. [What We're Building — The Big Picture](#1-what-were-building)
+2. [Core Concepts Explained](#2-core-concepts-explained)
+3. [Technology Choices & Rationale](#3-technology-choices--rationale)
+4. [System Architecture](#4-system-architecture)
+5. [Folder Structure](#5-folder-structure)
+6. [Phase-by-Phase Implementation Plan](#6-phase-by-phase-plan)
+7. [Open Questions](#7-open-questions)
+8. [Verification Plan](#8-verification-plan)
+
+---
+
+## 1. What We're Building
+
+### The Analogy
+
+Imagine you're building a **super-smart librarian** for a school:
+
+1. **A student asks a question** → The librarian hears it (Frontend + API)
+2. **The librarian searches through books** → Finds relevant pages (RAG + Vector DB)
+3. **The librarian reads those pages** → Understands the context (Embeddings)
+4. **The librarian formulates an answer** → Using their knowledge + the books (LLM)
+5. **The librarian remembers past conversations** → "You asked about this earlier..." (Memory)
+6. **The librarian cites sources** → "I found this on page 42 of..." (Source Citation)
+
+That's exactly what our chatbot does, but digitally.
+
+### What the User Sees
+
+```
+┌─────────────────────────────────────────┐
+│  🤖 EduBot - AI Learning Assistant      │
+│─────────────────────────────────────────│
+│                                         │
+│  User: What is machine learning?        │
+│                                         │
+│  Bot: Machine learning is a branch of   │
+│  artificial intelligence that enables   │
+│  computers to learn from data...        │
+│  📄 Source: intro_to_ml.pdf, page 3     │
+│                                         │
+│  User: Can you explain supervised       │
+│  learning specifically?                 │
+│                                         │
+│  Bot: Building on what we discussed     │
+│  about ML, supervised learning is...    │
+│  ⌨️ typing...                           │
+│                                         │
+│  ┌─────────────────────────────┐        │
+│  │ Type your message...    [➤] │        │
+│  └─────────────────────────────┘        │
+└─────────────────────────────────────────┘
+```
+
+### What Happens Behind the Scenes
+
+```mermaid
+sequenceDiagram
+    participant U as User (Browser)
+    participant F as Frontend (React)
+    participant A as API (FastAPI)
+    participant R as RAG Engine
+    participant V as Vector DB (FAISS)
+    participant L as LLM (Groq)
+    participant D as Database (SQLite)
+
+    U->>F: Types question
+    F->>A: POST /api/chat (SSE stream)
+    A->>D: Save user message
+    A->>R: Process query
+    R->>V: Search similar documents
+    V-->>R: Return top-k chunks
+    R->>L: Send prompt + context + history
+    L-->>A: Stream tokens
+    A-->>F: SSE stream tokens
+    F-->>U: Show typing + live text
+    A->>D: Save bot response + sources
+```
+
+---
+
+## 2. Core Concepts Explained
+
+### 2.1 What is an API?
+
+**Analogy:** An API is like a **restaurant menu**. You (the frontend) don't go into the kitchen (backend). Instead, you read the menu (API docs), place an order (HTTP request), and the waiter brings your food (response).
+
+**In our project:** FastAPI creates the "menu" — endpoints like:
+- `POST /api/chat` → Send a message, get a response
+- `GET /api/history` → Get past conversations
+- `POST /api/upload` → Upload a PDF
+
+### 2.2 What is RAG (Retrieval-Augmented Generation)?
+
+**The Problem:** LLMs (like ChatGPT) are trained on general knowledge. They don't know about *your* specific PDFs, course materials, or FAQs.
+
+**The Solution — RAG:**
+
+```
+Without RAG:
+  User: "What's the fee structure?"
+  LLM: "I don't have that information." ❌
+
+With RAG:
+  User: "What's the fee structure?"
+  System: *searches your uploaded PDFs*
+  System: *finds fee_structure.pdf, page 2*
+  System: *sends that context to the LLM*
+  LLM: "Based on the fee structure document, the annual fee is..." ✅
+```
+
+**How RAG works internally (5 steps):**
+
+```
+Step 1: INGEST
+  PDF → Split into chunks → Convert to vectors → Store in FAISS
+
+Step 2: QUERY
+  User question → Convert to vector → Search FAISS for similar chunks
+
+Step 3: RETRIEVE
+  FAISS returns top 3-5 most relevant chunks
+
+Step 4: AUGMENT
+  Combine: System Prompt + Retrieved Chunks + Chat History + User Question
+
+Step 5: GENERATE
+  Send combined prompt to LLM → Get answer → Stream to user
+```
+
+### 2.3 What are Embeddings?
+
+**Analogy:** Imagine every sentence is a point in a huge 3D space. Similar sentences are close together, different sentences are far apart.
+
+```
+"Machine learning is AI"  → [0.8, 0.2, 0.9, ...]  (768 numbers)
+"AI learns from data"     → [0.7, 0.3, 0.85, ...]  (nearby = similar!)
+"I like pizza"            → [0.1, 0.9, 0.1, ...]   (far away = different)
+```
+
+An **embedding model** converts text into these numerical vectors. We then use math (cosine similarity) to find which stored chunks are most similar to the user's question.
+
+### 2.4 What is a Vector Database?
+
+**Analogy:** A regular database searches by exact keywords ("find all rows where name = 'Harsh'"). A vector database searches by **meaning** ("find documents that talk about something similar to this question").
+
+**FAISS** (Facebook AI Similarity Search) is a fast, free vector database that runs locally. It stores embeddings and finds the nearest neighbors efficiently.
+
+### 2.5 What is Streaming (SSE)?
+
+**Without streaming:** You wait 10 seconds → entire response appears at once. Feels slow.  
+**With streaming (Server-Sent Events):** Words appear one by one, like someone typing. Feels fast and interactive.
+
+**How it works:**
+```
+Server sends: data: {"token": "Machine"}
+Server sends: data: {"token": " learning"}
+Server sends: data: {"token": " is"}
+Server sends: data: {"token": " a"}
+Server sends: data: {"token": " branch"}
+...
+Server sends: data: [DONE]
+```
+
+### 2.6 What is Conversation Memory?
+
+The LLM has no memory by default. Every request is independent. We solve this by:
+1. Storing all messages in SQLite
+2. Loading the last N messages when processing a new query
+3. Sending them as context to the LLM
+
+```
+Prompt sent to LLM:
+  System: You are a helpful educational assistant...
+  [Context from PDFs]
+  Human (3 msgs ago): What is ML?
+  AI (3 msgs ago): ML is...
+  Human (2 msgs ago): What about deep learning?
+  AI (2 msgs ago): Deep learning is...
+  Human (now): How do neural networks fit in?
+```
+
+---
+
+## 3. Technology Choices & Rationale
+
+### 3.1 Backend Framework: FastAPI
+
+| Option | Why FastAPI Wins |
+|--------|-----------------|
+| Flask | No async support, no auto-docs, slower |
+| Django | Too heavy for an API-only backend |
+| **FastAPI** ✅ | Async-native, auto-generates API docs, built-in validation with Pydantic, SSE streaming support, modern Python |
+
+### 3.2 RAG Framework: LangChain
+
+| Option | Why LangChain Wins |
+|--------|-------------------|
+| LlamaIndex | Better for pure document Q&A, but less flexible for custom pipelines |
+| **LangChain** ✅ | More flexible, larger ecosystem, better for combining RAG + memory + streaming, more community support, easier to customize |
+
+> **Why not LlamaIndex?** LlamaIndex is excellent for "plug and play" document Q&A, but LangChain gives us more control over each step. Since we want custom memory, streaming, and source citations, LangChain's modular approach fits better.
+
+### 3.3 Vector Database: FAISS
+
+| Option | Why FAISS |
+|--------|-----------|
+| Pinecone | Cloud-hosted, costs money at scale |
+| ChromaDB | Good, but FAISS is faster and battle-tested |
+| **FAISS** ✅ | Free, fast, runs locally, created by Meta AI, handles millions of vectors, no server needed |
+
+### 3.4 Embedding Model: `all-MiniLM-L6-v2` (via Sentence-Transformers)
+
+| Model | Dims | Speed | Quality | Free? |
+|-------|------|-------|---------|-------|
+| OpenAI ada-002 | 1536 | Fast | Best | ❌ Paid |
+| **all-MiniLM-L6-v2** ✅ | 384 | Very Fast | Great | ✅ Free |
+| all-mpnet-base-v2 | 768 | Slower | Better | ✅ Free |
+
+> **Why this one?** Best balance of speed and quality. Runs locally, no API key needed. 384 dimensions keep FAISS storage small. Perfect for educational content.
+
+### 3.5 LLM: Groq (Llama 3.1 8B or Mixtral 8x7B)
+
+| Option | Why Groq + Llama |
+|--------|-----------------|
+| OpenAI GPT-4 | Expensive, closed-source |
+| Ollama (local) | Requires powerful GPU |
+| Hugging Face API | Slow, rate-limited |
+| **Groq Cloud** ✅ | Free tier (generous limits), blazing fast inference, supports Llama 3.1 8B & Mixtral, streaming support, simple API |
+
+> **Why Groq?** It provides free, ultra-fast inference for open-source models. Llama 3.1 8B is instruction-tuned and excellent for educational Q&A. No GPU needed on your machine. Groq's free tier allows ~30 requests/minute — perfect for development and small-scale deployment.
+>
+> **Alternative:** If Groq's free tier is insufficient later, we can swap to Google's Gemini API (also has a generous free tier) with a single config change — that's the beauty of our modular architecture.
+
+### 3.6 Frontend: React (Vite)
+
+| Option | Why React + Vite |
+|--------|-----------------|
+| Next.js | Overkill for a chat widget, SSR not needed |
+| Plain HTML/JS | Hard to manage state, no component reuse |
+| **React + Vite** ✅ | Fast dev server, component-based, easy state management, simple to embed as a widget |
+
+### 3.7 Database: SQLite → PostgreSQL
+
+| Phase | Database | Why |
+|-------|----------|-----|
+| Development | **SQLite** | Zero setup, single file, comes with Python |
+| Production | **PostgreSQL** | Multi-user, concurrent writes, cloud-hosted options |
+
+> **How the swap works:** We'll use SQLAlchemy (an ORM) to abstract the database. Switching from SQLite to PostgreSQL means changing ONE line in the config: the database URL. No code changes needed.
+
+---
+
+## 4. System Architecture
+
+### High-Level Architecture
+
+```mermaid
+graph TB
+    subgraph "Frontend (React + Vite)"
+        UI[Chat Interface]
+        SM[State Management]
+    end
+
+    subgraph "Backend (FastAPI)"
+        API[API Layer]
+        AUTH[Middleware]
+        CHAT[Chat Service]
+        RAG[RAG Engine]
+        MEM[Memory Manager]
+        DOC[Document Processor]
+    end
+
+    subgraph "Data Layer"
+        FAISS[FAISS Vector Store]
+        SQLite[(SQLite DB)]
+        FILES[Uploaded PDFs]
+    end
+
+    subgraph "External Services"
+        GROQ[Groq API - LLM]
+        EMB[Local Embedding Model]
+    end
+
+    UI -->|HTTP/SSE| API
+    API --> CHAT
+    API --> DOC
+    CHAT --> RAG
+    CHAT --> MEM
+    RAG --> FAISS
+    RAG --> EMB
+    RAG --> GROQ
+    MEM --> SQLite
+    DOC --> FILES
+    DOC --> EMB
+    DOC --> FAISS
+```
+
+### Data Flow for a Chat Message
+
+```mermaid
+flowchart LR
+    A[User sends message] --> B[API receives request]
+    B --> C[Load chat history from SQLite]
+    C --> D[Embed user query]
+    D --> E[Search FAISS for relevant chunks]
+    E --> F[Build prompt with context + history]
+    F --> G[Send to Groq LLM]
+    G --> H[Stream response tokens via SSE]
+    H --> I[Save complete response to SQLite]
+    I --> J[Display in chat UI]
+```
+
+### Data Flow for PDF Upload
+
+```mermaid
+flowchart LR
+    A[User uploads PDF] --> B[API receives file]
+    B --> C[Extract text from PDF]
+    C --> D[Split into chunks of ~500 tokens]
+    D --> E[Generate embeddings for each chunk]
+    E --> F[Store embeddings in FAISS]
+    F --> G[Save metadata in SQLite]
+    G --> H[Return success response]
+```
+
+---
+
+## 5. Folder Structure
+
+```
+ai-chatbot/
+│
+├── backend/                          # All backend (Python/FastAPI) code
+│   ├── app/                          # Main application package
+│   │   ├── __init__.py               # Makes 'app' a Python package
+│   │   ├── main.py                   # FastAPI app entry point, CORS, startup
+│   │   ├── config.py                 # All configuration (env vars, settings)
+│   │   │
+│   │   ├── api/                      # API layer — routes/endpoints
+│   │   │   ├── __init__.py
+│   │   │   ├── router.py             # Main API router (combines all routes)
+│   │   │   ├── chat.py               # POST /api/chat — handles chat messages
+│   │   │   ├── documents.py          # POST /api/upload — PDF upload
+│   │   │   ├── history.py            # GET /api/history — chat history
+│   │   │   └── health.py             # GET /api/health — health check
+│   │   │
+│   │   ├── core/                     # Core business logic
+│   │   │   ├── __init__.py
+│   │   │   ├── chat_service.py       # Orchestrates chat: RAG + Memory + LLM
+│   │   │   ├── rag_engine.py         # RAG pipeline: retrieve + augment
+│   │   │   ├── document_processor.py # PDF parsing, chunking, embedding
+│   │   │   └── memory_manager.py     # Conversation memory (load/save)
+│   │   │
+│   │   ├── models/                   # Data models (Pydantic + SQLAlchemy)
+│   │   │   ├── __init__.py
+│   │   │   ├── schemas.py            # Pydantic models (API request/response)
+│   │   │   ├── database.py           # SQLAlchemy models (DB tables)
+│   │   │   └── enums.py              # Enums (MessageRole, etc.)
+│   │   │
+│   │   ├── services/                 # External service integrations
+│   │   │   ├── __init__.py
+│   │   │   ├── llm_service.py        # Groq/LLM API wrapper
+│   │   │   ├── embedding_service.py  # Embedding model wrapper
+│   │   │   └── vector_store.py       # FAISS operations wrapper
+│   │   │
+│   │   ├── db/                       # Database setup and session management
+│   │   │   ├── __init__.py
+│   │   │   ├── session.py            # SQLAlchemy engine + session factory
+│   │   │   └── init_db.py            # Create tables on startup
+│   │   │
+│   │   └── utils/                    # Utility functions
+│   │       ├── __init__.py
+│   │       ├── logger.py             # Centralized logging configuration
+│   │       ├── exceptions.py         # Custom exception classes
+│   │       └── prompts.py            # System prompts and prompt templates
+│   │
+│   ├── data/                         # Runtime data (gitignored)
+│   │   ├── uploads/                  # Uploaded PDFs
+│   │   ├── vector_store/             # FAISS index files
+│   │   └── chatbot.db                # SQLite database file
+│   │
+│   ├── tests/                        # Backend tests
+│   │   ├── __init__.py
+│   │   ├── test_chat.py
+│   │   ├── test_rag.py
+│   │   └── test_documents.py
+│   │
+│   ├── requirements.txt              # Python dependencies
+│   ├── Dockerfile                    # Backend Docker image
+│   └── .env.example                  # Example environment variables
+│
+├── frontend/                         # React frontend (Vite)
+│   ├── public/
+│   │   └── favicon.ico
+│   ├── src/
+│   │   ├── components/               # React components
+│   │   │   ├── ChatWindow.jsx        # Main chat container
+│   │   │   ├── MessageBubble.jsx     # Individual message display
+│   │   │   ├── ChatInput.jsx         # Input box + send button
+│   │   │   ├── TypingIndicator.jsx   # Animated typing dots
+│   │   │   ├── SourceCitation.jsx    # Source document links
+│   │   │   ├── FileUpload.jsx        # PDF upload component
+│   │   │   └── ChatHeader.jsx        # Header with title/controls
+│   │   │
+│   │   ├── hooks/                    # Custom React hooks
+│   │   │   ├── useChat.js            # Chat logic (send, receive, stream)
+│   │   │   └── useSSE.js             # Server-Sent Events hook
+│   │   │
+│   │   ├── services/                 # API communication
+│   │   │   └── api.js                # Axios/fetch wrapper
+│   │   │
+│   │   ├── styles/                   # CSS files
+│   │   │   ├── index.css             # Global styles + design tokens
+│   │   │   ├── ChatWindow.css        # Chat container styles
+│   │   │   ├── MessageBubble.css     # Message styles
+│   │   │   └── ChatInput.css         # Input styles
+│   │   │
+│   │   ├── utils/                    # Frontend utilities
+│   │   │   └── constants.js          # API URLs, config
+│   │   │
+│   │   ├── App.jsx                   # Root component
+│   │   └── main.jsx                  # React entry point
+│   │
+│   ├── index.html                    # HTML entry point
+│   ├── package.json                  # Node.js dependencies
+│   ├── vite.config.js                # Vite configuration
+│   ├── Dockerfile                    # Frontend Docker image
+│   └── .env.example                  # Frontend env vars
+│
+├── docker-compose.yml                # Run everything with one command
+├── .gitignore                        # Files to exclude from Git
+├── .env.example                      # Root-level env example
+├── LICENSE                           # MIT License
+└── README.md                         # Project documentation
+```
+
+### Why This Structure?
+
+| Principle | How We Apply It |
+|-----------|----------------|
+| **Separation of Concerns** | API routes don't contain business logic. Business logic doesn't know about HTTP. |
+| **Single Responsibility** | Each file does ONE thing. `chat_service.py` orchestrates, `rag_engine.py` retrieves, `llm_service.py` calls the LLM. |
+| **Dependency Inversion** | Services are abstracted. Swap FAISS for Pinecone? Change only `vector_store.py`. |
+| **Configuration** | All config in `config.py`, read from `.env`. No hardcoded values. |
+| **Testability** | Business logic is separated from framework code, making it easy to test. |
+
+---
+
+## 6. Phase-by-Phase Plan
+
+### Phase 1 ✅ Architecture (This Document)
+- Explain all concepts, design decisions, and system architecture
+- **Status: Complete — awaiting your approval**
+
+---
+
+### Phase 2: Project Setup & Folder Structure
+- Create the complete folder structure
+- Initialize Python virtual environment
+- Initialize React app with Vite
+- Create all `__init__.py` files
+- Set up `.env.example`, `.gitignore`
+
+---
+
+### Phase 3: Backend Foundation
+- **Files:** `main.py`, `config.py`, `logger.py`, `exceptions.py`
+- Set up FastAPI app with CORS
+- Configure Pydantic Settings (env vars)
+- Set up centralized logging
+- Create custom exception classes
+
+---
+
+### Phase 4: Database Layer
+- **Files:** `session.py`, `init_db.py`, `database.py`, `schemas.py`, `enums.py`
+- Create SQLAlchemy models (conversations, messages, documents)
+- Create Pydantic schemas for API validation
+- Set up database session management
+- Explain SQLite → PostgreSQL migration path
+
+---
+
+### Phase 5: Services Layer (Embeddings + LLM + Vector Store)
+- **Files:** `embedding_service.py`, `llm_service.py`, `vector_store.py`
+- Initialize the embedding model
+- Configure Groq API client
+- Set up FAISS vector store operations
+- Create wrapper classes for all external services
+
+---
+
+### Phase 6: RAG Engine
+- **Files:** `rag_engine.py`, `document_processor.py`, `prompts.py`
+- Build PDF ingestion pipeline (extract → chunk → embed → store)
+- Build retrieval pipeline (query → search → rank)
+- Create prompt templates with source citation
+
+---
+
+### Phase 7: Core Business Logic
+- **Files:** `chat_service.py`, `memory_manager.py`
+- Build the chat orchestration service
+- Implement conversation memory (load last N messages)
+- Wire everything together: Memory + RAG + LLM → Streamed Response
+
+---
+
+### Phase 8: API Layer
+- **Files:** `chat.py`, `documents.py`, `history.py`, `health.py`, `router.py`
+- Create all API endpoints
+- Implement SSE streaming for chat
+- Add file upload for PDFs
+- Add chat history retrieval
+
+---
+
+### Phase 9: Frontend
+- **All frontend files**
+- Build the chat UI with React + Vite
+- Implement SSE streaming display
+- Add typing indicator, source citations
+- Add file upload UI
+- Style with modern dark theme, glassmorphism, animations
+
+---
+
+### Phase 10: Docker & Deployment
+- **Files:** `Dockerfile` (backend), `Dockerfile` (frontend), `docker-compose.yml`
+- Containerize both services
+- Configure for Render (backend) + Vercel (frontend)
+- Environment variable management
+
+---
+
+### Phase 11: Documentation
+- Complete README with badges, screenshots, installation, usage
+- API documentation (auto-generated by FastAPI)
+- Deployment guide
+
+---
+
+### Phase 12: Testing Strategy
+- Unit tests for services
+- Integration tests for API endpoints
+- Test fixtures and mocking strategy
+
+---
+
+## 7. Open Questions
+
+> [!IMPORTANT]
+> Please answer these before I proceed with implementation:
+
+1. **Chatbot Name:** What would you like to name your chatbot? (e.g., "EduBot", "LearnAI", "StudyBuddy") — this affects branding in the UI and prompts.
+
+2. **Educational Context:** What type of educational content will the chatbot handle? (e.g., Computer Science courses, general academic help, specific subject) — this helps me tune the system prompt.
+
+3. **Groq API Key:** You'll need a free Groq API key from [console.groq.com](https://console.groq.com). Have you created one, or shall I include instructions in the setup?
+
+4. **Node.js & Python:** Do you have Python 3.10+ and Node.js 18+ installed? I'll include installation instructions if needed.
+
+5. **Git:** Are you using Git for version control? I'll set up `.gitignore` and explain the workflow.
+
+---
+
+## 8. Verification Plan
+
+### After Each Phase
+
+| Check | Method |
+|-------|--------|
+| Backend starts without errors | `uvicorn app.main:app --reload` |
+| API docs are accessible | Visit `http://localhost:8000/docs` |
+| Database tables are created | Check `chatbot.db` exists |
+| Embeddings load correctly | Test embedding a sample sentence |
+| FAISS operations work | Index + search a test document |
+| RAG pipeline works | Upload a PDF → ask a question about it |
+| Streaming works | Send a chat message → see tokens stream |
+| Frontend renders | `npm run dev` → visit localhost |
+| Docker builds | `docker-compose up --build` |
+
+### End-to-End Test Scenario
+
+1. Start the app → Upload a PDF about "Introduction to Python"
+2. Ask: "What is a variable in Python?"
+3. Verify: Response references the PDF, shows source citation, streams in real-time
+4. Ask follow-up: "Can you give me an example?"
+5. Verify: Bot remembers context from the first question
+6. Check chat history endpoint → both messages are stored
+
+---
+
+## Summary
+
+This chatbot is architected like a production system at a real AI company:
+
+- **Modular** — Every component can be swapped independently
+- **Scalable** — SQLite → PostgreSQL, FAISS → Pinecone, Groq → OpenAI
+- **Maintainable** — Clean separation of concerns, typed, documented
+- **Modern** — Streaming, async, containerized, cloud-ready
+
+**Next step:** Once you approve this architecture, I'll begin Phase 2 (Project Setup & Folder Structure).
