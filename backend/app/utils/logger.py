@@ -75,7 +75,12 @@ def get_logger(name: Optional[str] = None) -> logging.Logger:
         log_level = getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO)
         logger.setLevel(log_level)
 
-        # Create a handler that sends output to the console
+        # Create a handler that sends output to the console with UTF-8 support
+        if hasattr(sys.stdout, "reconfigure"):
+            try:
+                sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(log_level)
 
