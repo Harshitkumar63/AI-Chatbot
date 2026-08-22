@@ -148,6 +148,20 @@ def create_app() -> FastAPI:
     # ---- Register API Routes ----
     application.include_router(api_router)
 
+    # ---- Serve Frontend (Single Local Server) ----
+    import os
+    from fastapi.staticfiles import StaticFiles
+
+    frontend_dist = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist")
+    )
+    if os.path.exists(frontend_dist):
+        application.mount(
+            "/",
+            StaticFiles(directory=frontend_dist, html=True),
+            name="frontend",
+        )
+
     return application
 
 
