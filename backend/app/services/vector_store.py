@@ -69,7 +69,8 @@ class VectorStoreService:
         """Get the number of documents in the index."""
         if self._store is None:
             return 0
-        return len(self._store.docstore._dict)
+        docstore_dict = getattr(self._store.docstore, "_dict", {})
+        return len(docstore_dict)
 
     async def initialize(self) -> None:
         """

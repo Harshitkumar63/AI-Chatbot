@@ -76,9 +76,10 @@ def get_logger(name: Optional[str] = None) -> logging.Logger:
         logger.setLevel(log_level)
 
         # Create a handler that sends output to the console with UTF-8 support
-        if hasattr(sys.stdout, "reconfigure"):
+        reconfigure = getattr(sys.stdout, "reconfigure", None)
+        if callable(reconfigure):
             try:
-                sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+                reconfigure(encoding="utf-8", errors="replace")
             except Exception:
                 pass
         console_handler = logging.StreamHandler(sys.stdout)

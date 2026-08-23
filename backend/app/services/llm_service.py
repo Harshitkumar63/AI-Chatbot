@@ -39,9 +39,14 @@ yields values one at a time instead of returning all at once.
 
 from typing import AsyncGenerator, List, Optional
 
+from pydantic import SecretStr
 from langchain_groq import ChatGroq
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_core.messages import BaseMessage as LCMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage as LCMessage,
+    HumanMessage,
+    SystemMessage,
+)
 
 from app.config import get_settings
 from app.utils.exceptions import LLMServiceError
@@ -93,8 +98,8 @@ class LLMService:
 
             # Regular client (returns complete responses)
             self._client = ChatGroq(
-                api_key=self._settings.GROQ_API_KEY,
-                model_name=self._settings.LLM_MODEL_NAME,
+                api_key=SecretStr(self._settings.GROQ_API_KEY),
+                model=self._settings.LLM_MODEL_NAME,
                 temperature=self._settings.LLM_TEMPERATURE,
                 max_tokens=self._settings.LLM_MAX_TOKENS,
                 streaming=False,
@@ -102,8 +107,8 @@ class LLMService:
 
             # Streaming client (returns tokens one by one)
             self._streaming_client = ChatGroq(
-                api_key=self._settings.GROQ_API_KEY,
-                model_name=self._settings.LLM_MODEL_NAME,
+                api_key=SecretStr(self._settings.GROQ_API_KEY),
+                model=self._settings.LLM_MODEL_NAME,
                 temperature=self._settings.LLM_TEMPERATURE,
                 max_tokens=self._settings.LLM_MAX_TOKENS,
                 streaming=True,
@@ -178,7 +183,9 @@ class LLMService:
         try:
             messages = self._build_messages(system_prompt, chat_history, user_message)
             response = await self._client.ainvoke(messages)
-            return response.content
+            if isinstance(response.content, str):
+                return response.content
+            return str(response.content)
 
         except Exception as e:
             logger.error(f"LLM generation failed: {e}")
@@ -240,7 +247,10 @@ class LLMService:
             async for chunk in self._streaming_client.astream(messages):
                 # chunk.content may be empty for some events
                 if chunk.content:
-                    yield chunk.content
+                    if isinstance(chunk.content, str):
+                        yield chunk.content
+                    else:
+                        yield str(chunk.content)
 
         except Exception as e:
             logger.error(f"LLM streaming failed: {e}")
