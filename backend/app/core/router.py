@@ -66,8 +66,14 @@ COURSE_INTENT_PATTERNS = [
     r"\b(tell\s+me\s+about\s+(the\s+)?[a-z0-9\s-]+course)\b",
     r"\b(about\s+the\s+[a-z0-9\s-]+course)\b",
     r"\b(information\s+about\s+(the\s+)?[a-z0-9\s-]+course)\b",
+    # Platform / Website / Project Discovery
+    r"\b(about\s+(eduzyra|althexus|this\s+platform|this\s+website|this\s+project))\b",
+    r"\b(what\s+is\s+(eduzyra|althexus|this\s+platform|this\s+website|this\s+project))\b",
+    r"\b(tell\s+me\s+about\s+(eduzyra|althexus|this\s+platform|this\s+website|this\s+project))\b",
+    r"\b(details?\s+(of|about)\s+(the\s+)?(project|platform|website|learning\s+paths?))\b",
+    r"\b(cost\s+of\s+courses?|course\s+prices?|course\s+fees?|how\s+much\s+do\s+courses\s+cost)\b",
     # Specific course codes or keywords
-    r"\b(py-dev|ml-found|fs-web|dsa-pro|ai-gen|cloud-devops|data-analytics|cyber-sec)\b",
+    r"\b(edu-104|py-dev|ml-found|fs-web|dsa-pro|ai-gen|cloud-devops|data-analytics|cyber-sec)\b",
 ]
 
 # Keywords indicating institutional / organization / document / policy queries
@@ -147,8 +153,11 @@ class AIRouter:
                 metadata["reason"] = f"Multi-turn pronoun follow-up on '{course.title}'"
                 return AnswerMode.COURSE_DATA, metadata
 
-        # Step 2: Check Course Intent Patterns
-        is_course_intent = any(re.search(p, clean_text) for p in COURSE_INTENT_PATTERNS)
+        # Step 2: Identify Organizational / Document / Policy Intent
+        is_org_policy = any(re.search(p, clean_text) for p in ORG_POLICY_PATTERNS)
+
+        # Step 3: Check Course Intent Patterns (only if NOT an organizational policy question)
+        is_course_intent = any(re.search(p, clean_text) for p in COURSE_INTENT_PATTERNS) and not is_org_policy
 
         # Check for explicit course code, full title, or distinctive multi-word course phrases
         all_courses = await course_service.get_all_courses(session, is_available=True)
@@ -156,6 +165,10 @@ class AIRouter:
         has_full_title = any(c.title.lower() in clean_text for c in all_courses)
 
         course_name_phrases = [
+            "react for products",
+            "react for product",
+            "edu-104",
+            "edu 104",
             "python development",
             "python course",
             "machine learning foundations",
@@ -171,15 +184,16 @@ class AIRouter:
             "cybersecurity essentials",
             "cyber security",
             "ethical hacking",
+            "learning paths",
         ]
-        has_course_phrase = any(phrase in clean_text for phrase in course_name_phrases)
+        has_course_phrase = any(phrase in clean_text for phrase in course_name_phrases) and not is_org_policy
 
         is_explicit_course_mention = has_course_code or has_full_title or has_course_phrase
 
         # If it's a pure general definition question (e.g. "what is python?"), ensure it's not hijacked by course data
         is_pure_concept_question = bool(re.match(r"^what\s+is\s+(python|machine\s+learning|ai|html|css|javascript|recursion)\??$", clean_text))
 
-        if (is_course_intent or is_explicit_course_mention) and not is_pure_concept_question:
+        if (is_course_intent or is_explicit_course_mention) and not is_pure_concept_question and not is_org_policy:
             logger.info("Router: Course-related intent identified.")
 
             # Search database for relevant courses
@@ -200,9 +214,6 @@ class AIRouter:
             metadata["matched_courses"] = matched_courses
             metadata["reason"] = "Course catalog query or course details requested"
             return AnswerMode.COURSE_DATA, metadata
-
-        # Step 3: Check Organizational / Document / Policy Intent
-        is_org_policy = any(re.search(p, clean_text) for p in ORG_POLICY_PATTERNS)
 
         # Step 4: Perform Vector Store Search (if indexed docs exist)
         search_results = []

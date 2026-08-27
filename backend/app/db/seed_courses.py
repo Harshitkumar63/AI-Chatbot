@@ -19,6 +19,42 @@ logger = get_logger(__name__)
 
 INITIAL_COURSES: List[Dict[str, Any]] = [
     {
+        "code": "EDU-104",
+        "title": "React for Products & Design Systems",
+        "description": (
+            "Cohort-style engineering course on building production React 19 web applications "
+            "with design systems, state management, full build pipelines, and shipping to production."
+        ),
+        "category": "Web Development",
+        "level": "Intermediate",
+        "instructor": "Alex Johnson",
+        "instructor_bio": "Staff Frontend Architect and creator of design systems for high-growth tech startups.",
+        "duration": "8 weeks (40 hours)",
+        "lessons_count": 50,
+        "rating": 4.85,
+        "reviews_count": 1420,
+        "enrolled_students": 19600,
+        "current_price": 2999.0,
+        "original_price": 5999.0,
+        "currency": "₹",
+        "discount_percent": 50,
+        "syllabus": [
+            "Checkpoint 1: Enroll & Setup — Modern React 19 Architecture & Tooling",
+            "Checkpoint 2: Build — Component Design Systems, Hooks & CSS Tokens",
+            "Checkpoint 3: Review — State Management, Performance & Code Review with Mentors",
+            "Checkpoint 4: Ship — Production Build, CI/CD Deployment & Testing",
+            "Checkpoint 5: Hire-Ready — Portfolio Project & Industry Interview Prep",
+        ],
+        "learning_outcomes": [
+            "Ship end-to-end production React applications",
+            "Build scalable design systems with reusable components",
+            "Pass mentor reviews at every checkpoint",
+            "Master modern state management and asynchronous APIs",
+        ],
+        "prerequisites": ["Basic JavaScript fundamentals"],
+        "is_available": True,
+    },
+    {
         "code": "PY-DEV",
         "title": "Python Development Masterclass",
         "description": (
@@ -320,54 +356,41 @@ INITIAL_COURSES: List[Dict[str, Any]] = [
 
 async def seed_courses_if_empty(session: AsyncSession) -> int:
     """
-    Seed the database with initial authoritative courses if the course table is empty.
-
-    Parameters
-    ----------
-    session : AsyncSession
-        Active database session
-
-    Returns
-    -------
-    int
-        Number of courses seeded
+    Seed or update the database with initial authoritative courses.
+    Ensures all defined courses exist in the database.
     """
-    result = await session.execute(select(Course))
-    existing = result.scalars().first()
-
-    if existing is not None:
-        logger.debug("Courses table already populated. Skipping seed.")
-        return 0
-
-    logger.info(f"Seeding {len(INITIAL_COURSES)} initial courses into database...")
+    result = await session.execute(select(Course.code))
+    existing_codes = set(result.scalars().all())
 
     count = 0
     for data in INITIAL_COURSES:
-        course = Course(
-            code=data["code"],
-            title=data["title"],
-            description=data["description"],
-            category=data["category"],
-            level=data["level"],
-            instructor=data["instructor"],
-            instructor_bio=data.get("instructor_bio"),
-            duration=data["duration"],
-            lessons_count=data["lessons_count"],
-            rating=data["rating"],
-            reviews_count=data["reviews_count"],
-            enrolled_students=data["enrolled_students"],
-            current_price=data["current_price"],
-            original_price=data["original_price"],
-            currency=data.get("currency", "₹"),
-            discount_percent=data["discount_percent"],
-            syllabus=json.dumps(data.get("syllabus", [])),
-            learning_outcomes=json.dumps(data.get("learning_outcomes", [])),
-            prerequisites=json.dumps(data.get("prerequisites", [])),
-            is_available=data.get("is_available", True),
-        )
-        session.add(course)
-        count += 1
+        if data["code"] not in existing_codes:
+            course = Course(
+                code=data["code"],
+                title=data["title"],
+                description=data["description"],
+                category=data["category"],
+                level=data["level"],
+                instructor=data["instructor"],
+                instructor_bio=data.get("instructor_bio"),
+                duration=data["duration"],
+                lessons_count=data["lessons_count"],
+                rating=data["rating"],
+                reviews_count=data["reviews_count"],
+                enrolled_students=data["enrolled_students"],
+                current_price=data["current_price"],
+                original_price=data["original_price"],
+                currency=data.get("currency", "₹"),
+                discount_percent=data["discount_percent"],
+                syllabus=json.dumps(data.get("syllabus", [])),
+                learning_outcomes=json.dumps(data.get("learning_outcomes", [])),
+                prerequisites=json.dumps(data.get("prerequisites", [])),
+                is_available=data.get("is_available", True),
+            )
+            session.add(course)
+            count += 1
 
-    await session.commit()
-    logger.info(f"Successfully seeded {count} authoritative courses into database.")
+    if count > 0:
+        await session.commit()
+        logger.info(f"Successfully seeded/updated {count} authoritative courses into database.")
     return count

@@ -130,8 +130,13 @@ class CourseService:
         is_discovery_query = any(phrase in clean_query for phrase in [
             "what courses", "which courses", "available courses", "list of courses",
             "show courses", "all courses", "courses do you have", "what do you teach",
-            "course catalog", "our courses", "list courses", "any courses"
-        ]) or clean_query in ["courses", "course list", "available courses", "catalog"]
+            "course catalog", "our courses", "list courses", "any courses",
+            "course prices", "cost of courses", "how much are the courses", "how much do courses cost",
+            "course fees", "prices of courses", "all prices", "fee structure", "what are the fees",
+            "details of the project", "about eduzyra", "about althexus", "what is eduzyra",
+            "tell me about eduzyra", "about this platform", "about this website", "learning paths",
+            "react for products"
+        ]) or clean_query in ["courses", "course list", "available courses", "catalog", "prices", "fees", "pricing", "cost"]
 
         for course in all_courses:
             score = 0
