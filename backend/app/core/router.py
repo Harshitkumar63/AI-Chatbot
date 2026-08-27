@@ -61,6 +61,11 @@ COURSE_INTENT_PATTERNS = [
     r"\b(compare|versus|vs\.?|which\s+(one\s+)?is\s+better|which\s+course\s+should\s+i\s+take)\b",
     r"\b(recommend\s+(a\s+)?course|suggest\s+(a\s+)?course|suitable\s+for\s+(a\s+)?beginner)\b",
     r"\b(i\s+want\s+to\s+learn\s+(python|machine\s+learning|ai|web|dsa|cloud|cyber|data))\b",
+    # Course Details / Information
+    r"\b(details?\s+(of|about)\s+(the\s+)?[a-z0-9\s-]+course)\b",
+    r"\b(tell\s+me\s+about\s+(the\s+)?[a-z0-9\s-]+course)\b",
+    r"\b(about\s+the\s+[a-z0-9\s-]+course)\b",
+    r"\b(information\s+about\s+(the\s+)?[a-z0-9\s-]+course)\b",
     # Specific course codes or keywords
     r"\b(py-dev|ml-found|fs-web|dsa-pro|ai-gen|cloud-devops|data-analytics|cyber-sec)\b",
 ]
@@ -152,14 +157,19 @@ class AIRouter:
 
         course_name_phrases = [
             "python development",
+            "python course",
             "machine learning foundations",
+            "machine learning course",
             "full-stack web",
-            "web development bootcamp",
+            "web development",
+            "web dev",
             "data structures",
             "generative ai",
             "cloud computing",
+            "devops",
             "data analytics",
             "cybersecurity essentials",
+            "cyber security",
             "ethical hacking",
         ]
         has_course_phrase = any(phrase in clean_text for phrase in course_name_phrases)
