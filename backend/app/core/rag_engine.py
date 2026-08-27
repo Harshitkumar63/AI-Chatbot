@@ -1,43 +1,28 @@
 """
-RAG Engine for EduBot — with Intelligent Routing.
+RAG Engine & Prompt Builder for Eduzyra — 3-Way Hybrid AI Assistant.
 
-=== WHAT IS INTELLIGENT ROUTING? ===
-Not every question needs RAG. When a student asks "What is Python?",
-the LLM already knows the answer — no document search needed.
+=== 3-WAY HYBRID ENGINE ===
+Coordinates the AIRouter, CourseService, and VectorStore to construct
+grounded, hallucination-resistant prompts with precise citations:
 
-But when they ask "What is PW's refund policy?", we MUST search
-the knowledge base because that information is organization-specific.
-
-The intelligent router automatically decides:
-1. Search FAISS for relevant document chunks
-2. Check the similarity scores of the results
-3. If scores are HIGH → Use RAG (answer from documents)
-4. If scores are LOW → Skip RAG (answer from general knowledge)
-5. If vector store is EMPTY → Always use direct LLM
-
-=== HOW SIMILARITY SCORES WORK ===
-FAISS returns a distance score for each result. We convert it to
-a similarity score (0.0 to 1.0):
-- 1.0 = perfect match (identical meaning)
-- 0.5 = moderate match
-- 0.0 = no match at all
-
-We compare the BEST score against a threshold (default: 0.35).
-If the best score is below the threshold, documents aren't relevant enough.
-
-=== ANSWER MODES ===
-- RAG: "Based on your uploaded notes, Newton's Second Law states..."
-- DIRECT: "Newton's Second Law states F = ma..."  (from LLM knowledge)
+1. COURSE_DATA: Live database facts formatted into prompt + Course Catalog citation
+2. RAG: FAISS document chunks formatted into prompt + Document/Page citations
+3. DIRECT: Pure educational LLM prompt with general knowledge attribution
 """
 
 from typing import List, Optional, Tuple
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.core.router import ai_router
+from app.db.session import async_session_factory
 from app.models.enums import AnswerMode
 from app.models.schemas import SourceInfo
+from app.services.course_service import course_service
 from app.services.vector_store import vector_store_service
 from app.utils.logger import get_logger
 from app.utils.prompts import (
+    COURSE_DATA_PROMPT_TEMPLATE,
     DIRECT_LLM_PROMPT_TEMPLATE,
     NO_CONTEXT_PROMPT_TEMPLATE,
     RAG_PROMPT_TEMPLATE,
@@ -49,102 +34,125 @@ logger = get_logger(__name__)
 
 class RAGEngine:
     """
-    Retrieval-Augmented Generation engine with intelligent routing.
-
-    Automatically decides whether to use RAG or direct LLM
-    based on semantic similarity scores from the vector store.
+    Orchestrates prompt construction for 3-way hybrid AI modes.
     """
 
     def __init__(self) -> None:
         self._settings = get_settings()
 
+    def _get_best_similarity_score(self, search_results: list) -> float:
+        """Calculate highest similarity score from search results."""
+        if not search_results:
+            return 0.0
+        distances = [score for _, score in search_results]
+        min_distance = min(distances)
+        return 1.0 / (1.0 + min_distance)
+
     async def build_prompt(
         self,
         user_message: str,
         chat_history: List[dict],
+        session: Optional[AsyncSession] = None,
     ) -> Tuple[str, List[SourceInfo], AnswerMode]:
         """
-        Build the complete prompt for the LLM with intelligent routing.
+        Build the complete prompt and citations for the LLM using 3-way hybrid routing.
+
+        Parameters
+        ----------
+        user_message : str
+            Current user query
+        chat_history : List[dict]
+            Recent conversation history
+        session : Optional[AsyncSession]
+            Active database session
 
         Returns
         -------
         Tuple[str, List[SourceInfo], AnswerMode]
-            - The complete prompt string for the LLM
-            - List of source citations (empty for direct mode)
-            - The answer mode (RAG, DIRECT, or HYBRID)
+            - Complete formatted prompt for LLM
+            - List of SourceInfo citations
+            - Selected AnswerMode
         """
-        # Step 1: Check if vector store has any documents
-        if not vector_store_service.is_ready or vector_store_service.document_count == 0:
-            logger.info("Vector store empty → Using DIRECT mode (no documents indexed).")
-            prompt = self._build_no_context_prompt(user_message, chat_history)
-            return prompt, [], AnswerMode.DIRECT
-
-        # Step 2: Search FAISS for relevant chunks
-        search_results = await vector_store_service.search(user_message)
-
-        if not search_results:
-            logger.info("No search results → Using DIRECT mode.")
-            prompt = self._build_direct_prompt(user_message, chat_history)
-            return prompt, [], AnswerMode.DIRECT
-
-        # Step 3: INTELLIGENT ROUTING — Check similarity scores
-        # FAISS returns L2 distance (lower = more similar)
-        # We convert to a similarity score: similarity = 1 / (1 + distance)
-        best_score = self._get_best_similarity_score(search_results)
-        threshold = self._settings.RAG_SIMILARITY_THRESHOLD
-
-        logger.info(
-            f"Routing decision: best_similarity={best_score:.3f}, "
-            f"threshold={threshold:.3f}"
-        )
-
-        if best_score < threshold:
-            # Low confidence — documents aren't relevant to this question
-            logger.info(
-                f"Score {best_score:.3f} < threshold {threshold:.3f} "
-                f"→ Using DIRECT mode (documents not relevant)."
+        # Step 1: Route query via AIRouter
+        if session is not None:
+            mode, metadata = await ai_router.route_query(
+                user_message=user_message,
+                chat_history=chat_history,
+                session=session,
             )
-            prompt = self._build_direct_prompt(user_message, chat_history)
-            return prompt, [], AnswerMode.DIRECT
         else:
-            # High confidence — documents are relevant, use RAG
-            logger.info(
-                f"Score {best_score:.3f} >= threshold {threshold:.3f} "
-                f"→ Using RAG mode (relevant documents found)."
+            async with async_session_factory() as temp_session:
+                mode, metadata = await ai_router.route_query(
+                    user_message=user_message,
+                    chat_history=chat_history,
+                    session=temp_session,
+                )
+
+        history_str = self._format_chat_history(chat_history)
+
+        # Step 2: Handle COURSE_DATA Mode
+        if mode == AnswerMode.COURSE_DATA:
+            courses = metadata.get("matched_courses", [])
+            if not courses and session:
+                # If router didn't pre-populate courses, search now
+                courses = await course_service.search_courses_by_query(
+                    session=session,
+                    query_text=user_message,
+                    limit=5,
+                )
+
+            course_context = course_service.format_courses_for_context(courses)
+            prompt = COURSE_DATA_PROMPT_TEMPLATE.format(
+                course_context=course_context,
+                chat_history=history_str,
+                question=user_message,
             )
-            prompt, sources = self._build_rag_prompt(
-                user_message, chat_history, search_results
-            )
-            return prompt, sources, AnswerMode.RAG
 
-    def _get_best_similarity_score(self, search_results: list) -> float:
-        """
-        Get the highest similarity score from search results.
+            # Build source citation for course catalog
+            course_titles = ", ".join([c.title for c in courses[:3]]) if courses else "Eduzyra Course Catalog"
+            sources = [
+                SourceInfo(
+                    document="Eduzyra Course Catalog",
+                    page=None,
+                    chunk_preview=f"Authoritative course database data for: {course_titles}",
+                    confidence_score=1.0,
+                    source_type="course_catalog",
+                )
+            ]
+            logger.info(f"Built COURSE_DATA prompt with {len(courses)} courses.")
+            return prompt, sources, AnswerMode.COURSE_DATA
 
-        FAISS returns L2 (Euclidean) distance by default:
-        - 0.0 = identical vectors
-        - Higher = more different
+        # Step 3: Handle RAG Mode
+        if mode == AnswerMode.RAG:
+            search_results = metadata.get("vector_search_results", [])
+            if not search_results and vector_store_service.is_ready:
+                search_results = await vector_store_service.search(user_message)
 
-        We convert to similarity (0.0 - 1.0):
-        - similarity = 1 / (1 + distance)
-        - 1.0 = identical
-        - 0.0 = completely different
+            if search_results:
+                prompt, sources = self._build_rag_prompt(
+                    user_message=user_message,
+                    chat_history=chat_history,
+                    search_results=search_results,
+                )
+                logger.info(f"Built RAG prompt with {len(search_results)} chunks.")
+                return prompt, sources, AnswerMode.RAG
+            else:
+                # No document chunks available for an org/doc question
+                prompt = RAG_PROMPT_TEMPLATE.format(
+                    context="NO RELEVANT DOCUMENTS FOUND IN KNOWLEDGE BASE FOR THIS QUERY.",
+                    chat_history=history_str,
+                    question=user_message,
+                )
+                logger.info("Built RAG safety prompt (no documents found for policy query).")
+                return prompt, [], AnswerMode.RAG
 
-        Note: When using normalized embeddings (which we do),
-        L2 distance ranges from 0 to 2, so similarity ranges
-        from 0.33 to 1.0 in practice.
-        """
-        if not search_results:
-            return 0.0
-
-        # search_results is List[Tuple[Document, float]]
-        # The float is the L2 distance (lower = better)
-        distances = [score for _, score in search_results]
-        min_distance = min(distances)
-
-        # Convert L2 distance to similarity score
-        similarity = 1.0 / (1.0 + min_distance)
-        return similarity
+        # Step 4: Handle DIRECT LLM Mode
+        prompt = DIRECT_LLM_PROMPT_TEMPLATE.format(
+            chat_history=history_str,
+            question=user_message,
+        )
+        logger.info("Built DIRECT LLM prompt.")
+        return prompt, [], AnswerMode.DIRECT
 
     def _build_rag_prompt(
         self,
@@ -158,25 +166,32 @@ class RAGEngine:
         seen_sources: set = set()
 
         for doc, distance in search_results:
-            source_name = doc.metadata.get("source", "Unknown")
+            source_name = doc.metadata.get("source", "Knowledge Base Document")
             page_num = doc.metadata.get("page", None)
+            section = doc.metadata.get("section", None)
+            document_id = doc.metadata.get("document_id", None)
             similarity = 1.0 / (1.0 + distance)
 
+            section_str = f" | Section: {section}" if section else ""
+            page_str = f"Page {page_num}" if page_num else "Document"
             context_parts.append(
-                f"--- From: {source_name} (Page {page_num}) "
+                f"--- From: {source_name} ({page_str}{section_str}) "
                 f"[Relevance: {similarity:.0%}] ---\n"
                 f"{doc.page_content}\n"
             )
 
-            source_key = f"{source_name}_p{page_num}"
+            source_key = f"{source_name}_p{page_num}_s{section}"
             if source_key not in seen_sources:
                 seen_sources.add(source_key)
                 sources.append(
                     SourceInfo(
                         document=source_name,
                         page=page_num,
+                        section=section,
+                        document_id=document_id,
                         chunk_preview=doc.page_content[:150] + "...",
                         confidence_score=round(similarity, 3),
+                        source_type="document",
                     )
                 )
 
@@ -189,11 +204,6 @@ class RAGEngine:
             question=user_message,
         )
 
-        logger.debug(
-            f"Built RAG prompt with {len(search_results)} chunks, "
-            f"{len(sources)} unique sources."
-        )
-
         return prompt, sources
 
     def _build_direct_prompt(
@@ -203,30 +213,22 @@ class RAGEngine:
     ) -> str:
         """Build a direct LLM prompt (no document context)."""
         history_str = self._format_chat_history(chat_history)
-
-        prompt = DIRECT_LLM_PROMPT_TEMPLATE.format(
+        return DIRECT_LLM_PROMPT_TEMPLATE.format(
             chat_history=history_str,
             question=user_message,
         )
-
-        logger.debug("Built DIRECT prompt (no relevant documents).")
-        return prompt
 
     def _build_no_context_prompt(
         self,
         user_message: str,
         chat_history: List[dict],
     ) -> str:
-        """Build a no-context prompt (vector store is empty)."""
+        """Build a no-context prompt."""
         history_str = self._format_chat_history(chat_history)
-
-        prompt = NO_CONTEXT_PROMPT_TEMPLATE.format(
+        return NO_CONTEXT_PROMPT_TEMPLATE.format(
             chat_history=history_str,
             question=user_message,
         )
-
-        logger.debug("Built NO-CONTEXT prompt (empty vector store).")
-        return prompt
 
     def _format_chat_history(self, chat_history: List[dict]) -> str:
         """Format chat history into a readable string for the LLM."""

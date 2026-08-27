@@ -199,6 +199,12 @@ async def admin_delete_document(
     description="Rebuild the vector search index from all completed documents.",
     dependencies=[Depends(verify_admin_key)],
 )
+@router.post(
+    "/documents/reindex",
+    summary="Reindex all documents",
+    description="Alias endpoint to rebuild the FAISS vector search index.",
+    dependencies=[Depends(verify_admin_key)],
+)
 async def admin_rebuild_index(
     session: AsyncSession = Depends(get_session),
 ) -> dict:

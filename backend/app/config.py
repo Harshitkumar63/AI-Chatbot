@@ -67,7 +67,7 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str = ""
 
     # Which LLM model to use on Groq
-    LLM_MODEL_NAME: str = "llama-3.1-8b-instant"
+    LLM_MODEL_NAME: str = "openai/gpt-oss-120b"
 
     # Max tokens per response (1 token ≈ 0.75 words)
     LLM_MAX_TOKENS: int = 1024

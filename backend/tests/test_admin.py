@@ -142,3 +142,17 @@ async def test_no_student_upload_endpoint():
 
     # Should be 404 or 405 (not found or method not allowed)
     assert response.status_code in (404, 405)
+
+
+@pytest.mark.anyio
+async def test_admin_reindex_alias_endpoint():
+    """POST /api/admin/documents/reindex should work with admin auth."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/api/admin/documents/reindex",
+            headers=ADMIN_HEADERS,
+        )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "completed"

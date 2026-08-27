@@ -56,18 +56,21 @@ class DocumentStatus(str, Enum):
 
 class AnswerMode(str, Enum):
     """
-    How the chatbot generated its answer.
+    How the chatbot generated its answer in the 3-way Hybrid AI system.
 
     This enables intelligent routing:
+    - COURSE_DATA: Answer dynamically grounded in live course database
     - RAG: Answer came from retrieved documents (knowledge base)
     - DIRECT: Answer came from the LLM's general knowledge
-    - HYBRID: Answer combined both sources
+    - HYBRID: Answer combined multiple sources
 
     The frontend uses this to show appropriate source attribution:
-    - RAG → "📄 Source: intro_ml.pdf, Page 3"
+    - COURSE_DATA → "🎓 Answered from Eduzyra Course Catalog"
+    - RAG → "📚 Source: intro_ml.pdf, Page 3"
     - DIRECT → "💡 Answered from general knowledge"
     """
 
+    COURSE_DATA = "course_data"
     RAG = "rag"
     DIRECT = "direct"
     HYBRID = "hybrid"

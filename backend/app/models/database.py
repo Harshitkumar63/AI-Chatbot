@@ -51,7 +51,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -181,6 +181,13 @@ class Message(Base):
         default=None,
     )
 
+    # Answer mode: course_data, rag, direct, hybrid
+    answer_mode: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        default=None,
+    )
+
     # When was this message sent?
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -263,3 +270,168 @@ class Document(Base):
 
     def __repr__(self) -> str:
         return f"<Document(id={self.id}, filename={self.filename}, status={self.status})>"
+
+
+class Course(Base):
+    """
+    Represents an authoritative course in the Eduzyra platform.
+
+    === SINGLE SOURCE OF TRUTH ===
+    This model represents live, structured application data.
+    The AI chatbot must query this table dynamically rather than
+    hardcoding course names, prices, or details in prompts or dictionaries.
+
+    When database records are updated (e.g. price change, new instructor),
+    the chatbot immediately reflects the updated data.
+    """
+
+    __tablename__ = "courses"
+
+    # Primary key — unique identifier (UUID)
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=generate_uuid,
+    )
+
+    # Human-readable unique course code (e.g., "PY-DEV", "ML-FOUND")
+    code: Mapped[str] = mapped_column(
+        String(50),
+        unique=True,
+        nullable=False,
+        index=True,
+    )
+
+    # Full course title (e.g., "Python Development Masterclass")
+    title: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        index=True,
+    )
+
+    # Detailed course description
+    description: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    # Category: Programming, Artificial Intelligence, Web Development, Data Science, etc.
+    category: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        index=True,
+    )
+
+    # Difficulty level: Beginner, Intermediate, Advanced, All Levels
+    level: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        index=True,
+    )
+
+    # Instructor name and brief bio
+    instructor: Mapped[str] = mapped_column(
+        String(150),
+        nullable=False,
+        index=True,
+    )
+    instructor_bio: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+        default=None,
+    )
+
+    # Duration: e.g., "8 weeks (40 hours)"
+    duration: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+    )
+
+    # Total lessons / modules count
+    lessons_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
+    # Rating (0.0 - 5.0) and review metrics
+    rating: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        default=5.0,
+    )
+    reviews_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
+    # Number of enrolled students
+    enrolled_students: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
+    # Pricing details (Current active price and original strikethrough price)
+    current_price: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+    )
+    original_price: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+    )
+    currency: Mapped[str] = mapped_column(
+        String(10),
+        nullable=False,
+        default="₹",
+    )
+    discount_percent: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
+    # Syllabus (stored as JSON string of topics/modules)
+    syllabus: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="[]",
+    )
+
+    # Learning outcomes (stored as JSON string)
+    learning_outcomes: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="[]",
+    )
+
+    # Prerequisites (stored as JSON string)
+    prerequisites: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="[]",
+    )
+
+    # Availability / Enrollment status
+    is_available: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+    )
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    def __repr__(self) -> str:
+        return f"<Course(code={self.code}, title={self.title}, price={self.currency}{self.current_price})>"
+

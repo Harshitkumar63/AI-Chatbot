@@ -22,6 +22,7 @@ from fastapi import APIRouter
 
 from app.api.admin import router as admin_router
 from app.api.chat import router as chat_router
+from app.api.courses import router as courses_router
 from app.api.documents import router as documents_router
 from app.api.health import router as health_router
 from app.api.history import router as history_router
@@ -31,6 +32,7 @@ api_router = APIRouter(prefix="/api")
 
 # Student-facing routes
 api_router.include_router(chat_router)
+api_router.include_router(courses_router)
 api_router.include_router(documents_router)
 api_router.include_router(history_router)
 api_router.include_router(health_router)

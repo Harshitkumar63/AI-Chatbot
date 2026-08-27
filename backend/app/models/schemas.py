@@ -96,6 +96,21 @@ class SourceInfo(BaseModel):
         description="Similarity score from FAISS (0.0 - 1.0)",
     )
 
+    section: Optional[str] = Field(
+        default=None,
+        description="Section or heading name in the document",
+    )
+
+    document_id: Optional[int] = Field(
+        default=None,
+        description="Database document ID",
+    )
+
+    source_type: Optional[str] = Field(
+        default="document",
+        description="Source type: document, course_catalog, general_knowledge",
+    )
+
 
 class ChatResponse(BaseModel):
     """
@@ -188,6 +203,10 @@ class MessageResponse(BaseModel):
     sources: Optional[List[SourceInfo]] = Field(
         default=None,
         description="Source citations (for AI messages)",
+    )
+    answer_mode: Optional[str] = Field(
+        default=None,
+        description="Answer mode: course_data, rag, direct, hybrid",
     )
     created_at: datetime = Field(..., description="When the message was sent")
 
@@ -284,3 +303,97 @@ class HealthResponse(BaseModel):
         0,
         description="Number of indexed documents",
     )
+
+
+# ============================================
+# COURSE SCHEMAS (SINGLE SOURCE OF TRUTH)
+# ============================================
+
+class CourseBase(BaseModel):
+    """Base fields for a course."""
+    code: str = Field(..., description="Unique course code (e.g. PY-DEV)")
+    title: str = Field(..., description="Full course title")
+    description: str = Field(..., description="Detailed description")
+    category: str = Field(..., description="Category (Programming, AI, Web Dev, etc.)")
+    level: str = Field(..., description="Difficulty level (Beginner, Intermediate, Advanced)")
+    instructor: str = Field(..., description="Instructor name")
+    instructor_bio: Optional[str] = Field(None, description="Instructor biography")
+    duration: str = Field(..., description="Duration e.g. 8 weeks (40 hours)")
+    lessons_count: int = Field(0, description="Total lessons/modules count")
+    rating: float = Field(5.0, description="Average rating (0.0-5.0)")
+    reviews_count: int = Field(0, description="Total number of reviews")
+    enrolled_students: int = Field(0, description="Number of enrolled students")
+    current_price: float = Field(..., description="Current active price")
+    original_price: float = Field(..., description="Original price")
+    currency: str = Field("₹", description="Currency symbol")
+    discount_percent: int = Field(0, description="Discount percentage")
+    syllabus: List[str] = Field(default_factory=list, description="List of syllabus topics/modules")
+    learning_outcomes: List[str] = Field(default_factory=list, description="List of learning outcomes")
+    prerequisites: List[str] = Field(default_factory=list, description="List of prerequisites")
+    is_available: bool = Field(True, description="Whether course is open for enrollment")
+
+
+class CourseResponse(BaseModel):
+    """Summary response for course lists."""
+    id: str = Field(..., description="Course UUID")
+    code: str = Field(..., description="Course code")
+    title: str = Field(..., description="Course title")
+    description: str = Field(..., description="Description preview")
+    category: str = Field(..., description="Category")
+    level: str = Field(..., description="Level")
+    instructor: str = Field(..., description="Instructor name")
+    duration: str = Field(..., description="Duration")
+    lessons_count: int = Field(..., description="Lessons count")
+    rating: float = Field(..., description="Rating")
+    enrolled_students: int = Field(..., description="Enrolled students")
+    current_price: float = Field(..., description="Current price")
+    original_price: float = Field(..., description="Original price")
+    currency: str = Field("₹", description="Currency symbol")
+    discount_percent: int = Field(..., description="Discount percent")
+    is_available: bool = Field(..., description="Availability status")
+
+    model_config = {"from_attributes": True}
+
+
+class CourseDetailResponse(CourseResponse):
+    """Full course details including syllabus, prerequisites, and outcomes."""
+    instructor_bio: Optional[str] = None
+    reviews_count: int = 0
+    syllabus: List[str] = Field(default_factory=list)
+    learning_outcomes: List[str] = Field(default_factory=list)
+    prerequisites: List[str] = Field(default_factory=list)
+    created_at: datetime = Field(...)
+    updated_at: datetime = Field(...)
+
+    model_config = {"from_attributes": True}
+
+
+class CourseListResponse(BaseModel):
+    """Response containing a list of courses and metadata."""
+    total: int = Field(..., description="Total courses matching criteria")
+    courses: List[CourseResponse] = Field(default_factory=list, description="List of courses")
+
+
+class CourseComparisonItem(BaseModel):
+    """Comparison item for comparing two or more courses."""
+    code: str
+    title: str
+    category: str
+    level: str
+    instructor: str
+    duration: str
+    lessons_count: int
+    rating: float
+    current_price: float
+    original_price: float
+    currency: str = "₹"
+    discount_percent: int
+    syllabus_preview: List[str] = Field(default_factory=list)
+    learning_outcomes: List[str] = Field(default_factory=list)
+
+
+class CourseComparisonResponse(BaseModel):
+    """Response containing course comparison data."""
+    courses: List[CourseComparisonItem]
+    comparison_notes: Optional[str] = None
+

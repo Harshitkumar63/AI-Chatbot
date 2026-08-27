@@ -79,7 +79,13 @@ class ChatService:
             )
             conv_id = conversation.id
 
-            # Step 2: Save the user's message
+            # Step 2: Load prior chat history (last N messages before this turn)
+            chat_history = await memory_manager.get_chat_history(
+                session=session,
+                conversation_id=conv_id,
+            )
+
+            # Step 3: Save the user's message
             await memory_manager.save_message(
                 session=session,
                 conversation_id=conv_id,
@@ -87,23 +93,17 @@ class ChatService:
                 content=user_message,
             )
 
-            # Step 3: Send "start" event with conversation ID
+            # Step 4: Send "start" event with conversation ID
             yield self._format_sse_event(
                 StreamEvent(event="start", conversation_id=conv_id)
             )
 
-            # Step 4: Load chat history (last N messages)
-            chat_history = await memory_manager.get_chat_history(
-                session=session,
-                conversation_id=conv_id,
-            )
-
-            # Step 5: RAG Engine — Intelligent Routing
-            # This is where the magic happens: the RAG engine decides
-            # whether to use document context or general knowledge
+            # Step 5: 3-Way Hybrid Intelligent Routing
+            # The router decides between COURSE_DATA, RAG, and DIRECT LLM modes
             prompt, sources, answer_mode = await rag_engine.build_prompt(
                 user_message=user_message,
                 chat_history=chat_history,
+                session=session,
             )
 
             logger.info(f"Answer mode: {answer_mode.value}")
@@ -136,6 +136,7 @@ class ChatService:
                 role=MessageRole.AI,
                 content=full_response,
                 sources=sources if sources else None,
+                answer_mode=answer_mode.value,
             )
 
             # Step 10: Send source citations + answer mode

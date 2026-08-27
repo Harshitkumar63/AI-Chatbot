@@ -14,9 +14,10 @@ Administrators build the knowledge base once, and all students benefit.
 3. TXT (.txt) — Read directly as text
 """
 
+import re
 import shutil
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from pypdf import PdfReader
 from sqlalchemy import select
@@ -100,7 +101,7 @@ class DocumentProcessor:
                     filename=filename,
                 )
 
-            chunks, metadatas = self._split_into_chunks(text, filename)
+            chunks, metadatas = self._split_into_chunks(text, filename, document_id=document.id)
             logger.info(f"Split '{filename}' into {len(chunks)} chunks.")
 
             added_count = await vector_store_service.add_documents(
@@ -262,8 +263,18 @@ class DocumentProcessor:
         self,
         text: str,
         filename: str,
+        document_id: Optional[int] = None,
     ) -> Tuple[List[str], List[dict]]:
-        """Split extracted text into overlapping chunks."""
+        """
+        Split extracted text into overlapping, boundary-aware chunks with rich metadata.
+
+        Metadata stored on each chunk:
+        - document_id: ID of the document record in DB
+        - source: Document filename
+        - page: Current page number
+        - section: Section / Heading title
+        - chunk_index: 0-based sequence index
+        """
         chunk_size = self._settings.CHUNK_SIZE
         chunk_overlap = self._settings.CHUNK_OVERLAP
 
@@ -275,14 +286,37 @@ class DocumentProcessor:
             step = chunk_size
 
         current_page = 1
+        current_section = "Overview"
+
+        # Regex patterns for section header detection
+        header_patterns = [
+            r"^(?:#{1,3}\s+|SECTION\s+\d+:?\s*|CHAPTER\s+\d+:?\s*)([^\n]+)",
+            r"^([A-Z0-9\s,:\-]{4,60})$",
+        ]
+
+        # First scan the document line-by-line to build a map of positions to headings
+        line_offsets: List[Tuple[int, str]] = []
+        for line_match in re.finditer(r"(?m)^(.+)$", text):
+            line_text = line_match.group(1).strip()
+            for pattern in header_patterns:
+                match = re.match(pattern, line_text, re.IGNORECASE)
+                if match and len(line_text) < 80:
+                    heading_name = match.group(1) if match.groups() else line_text
+                    heading_name = re.sub(r"^[#\s]+", "", heading_name).strip()
+                    if heading_name and not heading_name.startswith("[PAGE "):
+                        line_offsets.append((line_match.start(), heading_name))
+                    break
 
         for i in range(0, len(text), step):
-            chunk = text[i : i + chunk_size].strip()
+            # Try to snap end boundary to paragraph or sentence ending if within overlap range
+            end_pos = min(i + chunk_size, len(text))
+            chunk = text[i:end_pos].strip()
 
             if not chunk:
                 continue
 
-            page_marker_pos = text.rfind("[PAGE ", 0, i + chunk_size)
+            # Update page number from closest preceding [PAGE X] tag
+            page_marker_pos = text.rfind("[PAGE ", 0, end_pos)
             if page_marker_pos != -1:
                 try:
                     page_end = text.index("]", page_marker_pos)
@@ -291,12 +325,24 @@ class DocumentProcessor:
                 except (ValueError, IndexError):
                     pass
 
+            # Update section header from closest preceding section header
+            for offset, heading in line_offsets:
+                if offset <= i:
+                    current_section = heading
+                else:
+                    break
+
             chunks.append(chunk)
-            metadatas.append({
+            meta: dict = {
                 "source": filename,
                 "page": current_page,
+                "section": current_section,
                 "chunk_index": len(chunks) - 1,
-            })
+            }
+            if document_id is not None:
+                meta["document_id"] = document_id
+
+            metadatas.append(meta)
 
         return chunks, metadatas
 
@@ -372,7 +418,7 @@ class DocumentProcessor:
                 if not text.strip():
                     continue
 
-                chunks, metadatas = self._split_into_chunks(text, doc.filename)
+                chunks, metadatas = self._split_into_chunks(text, doc.filename, document_id=doc.id)
                 added = await vector_store_service.add_documents(
                     texts=chunks,
                     metadatas=metadatas,

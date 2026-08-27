@@ -1,10 +1,12 @@
 """
-Tests for Document Processing.
+Tests for Document Processing and RAG Chunking.
 
 Tests cover:
 - File validation (empty, unsupported types, size limits)
 - Multi-format support (PDF, DOCX, TXT)
 - Text chunking with overlap
+- Rich metadata tracking (document_id, section, page, chunk_index)
+- Section header detection
 """
 
 import pytest
@@ -30,7 +32,6 @@ def test_validate_file_rejects_unsupported_types():
 def test_validate_file_accepts_supported_types():
     """PDF, DOCX, and TXT files should be accepted."""
     processor = DocumentProcessor()
-    # These should NOT raise exceptions
     processor._validate_file(b"content", "test.pdf")
     processor._validate_file(b"content", "test.docx")
     processor._validate_file(b"content", "test.txt")
@@ -47,7 +48,7 @@ def test_validate_file_rejects_large_files():
 def test_split_into_chunks():
     """Text should be split into chunks with overlap."""
     processor = DocumentProcessor()
-    text = "A" * 1500  # 1500 characters
+    text = "A" * 1500
     chunks, metadatas = processor._split_into_chunks(text, "test.pdf")
 
     assert len(chunks) > 1
@@ -65,17 +66,26 @@ def test_split_into_chunks_short_text():
     assert chunks[0] == "Hello world"
 
 
-def test_split_into_chunks_preserves_metadata():
-    """Each chunk should have source and page metadata."""
+def test_split_into_chunks_preserves_rich_metadata():
+    """Each chunk should have source, page, section, document_id, and chunk_index metadata."""
     processor = DocumentProcessor()
-    text = "[PAGE 1]\nFirst page content\n" + "A" * 1000 + "\n[PAGE 2]\nSecond page content"
-    chunks, metadatas = processor._split_into_chunks(text, "notes.pdf")
+    text = (
+        "[PAGE 1]\n"
+        "## Introduction to Machine Learning\n"
+        "Machine learning is a subset of artificial intelligence.\n"
+        + "A" * 800
+        + "\n[PAGE 2]\n"
+        "## Neural Networks Deep Dive\n"
+        "Neural networks are inspired by biological neurons.\n"
+    )
+    chunks, metadatas = processor._split_into_chunks(text, "ml_guide.pdf", document_id=42)
 
     assert len(chunks) > 0
-    assert all("source" in m for m in metadatas)
+    assert all(m["source"] == "ml_guide.pdf" for m in metadatas)
+    assert all(m["document_id"] == 42 for m in metadatas)
     assert all("page" in m for m in metadatas)
+    assert all("section" in m for m in metadatas)
     assert all("chunk_index" in m for m in metadatas)
-    assert all(m["source"] == "notes.pdf" for m in metadatas)
 
 
 def test_extract_text_txt(tmp_path):

@@ -84,7 +84,7 @@ async def test_build_prompt_empty_vector_store():
     """When vector store is empty, should use DIRECT mode."""
     engine = RAGEngine()
 
-    with patch("app.core.rag_engine.vector_store_service") as mock_vs:
+    with patch("app.core.router.vector_store_service") as mock_vs:
         mock_vs.is_ready = False
         mock_vs.document_count = 0
 
@@ -103,7 +103,7 @@ async def test_build_prompt_no_search_results():
     """When FAISS returns no results, should use DIRECT mode."""
     engine = RAGEngine()
 
-    with patch("app.core.rag_engine.vector_store_service") as mock_vs:
+    with patch("app.core.router.vector_store_service") as mock_vs:
         mock_vs.is_ready = True
         mock_vs.document_count = 10
         mock_vs.search = AsyncMock(return_value=[])
@@ -126,7 +126,7 @@ async def test_build_prompt_low_similarity_uses_direct():
         metadata={"source": "random.pdf", "page": 1},
     )
 
-    with patch("app.core.rag_engine.vector_store_service") as mock_vs:
+    with patch("app.core.router.vector_store_service") as mock_vs:
         mock_vs.is_ready = True
         mock_vs.document_count = 10
         # High L2 distance = low similarity → below threshold
@@ -150,14 +150,18 @@ async def test_build_prompt_high_similarity_uses_rag():
         metadata={"source": "python_intro.pdf", "page": 3},
     )
 
-    with patch("app.core.rag_engine.vector_store_service") as mock_vs:
+    with patch("app.core.router.vector_store_service") as mock_vs, patch(
+        "app.core.rag_engine.vector_store_service"
+    ) as mock_rag_vs:
         mock_vs.is_ready = True
         mock_vs.document_count = 10
         # Low L2 distance = high similarity → above threshold
         mock_vs.search = AsyncMock(return_value=[(doc, 0.2)])
+        mock_rag_vs.is_ready = True
+        mock_rag_vs.search = AsyncMock(return_value=[(doc, 0.2)])
 
         prompt, sources, mode = await engine.build_prompt(
-            user_message="What is Python?",
+            user_message="What is Python according to the notes?",
             chat_history=[],
         )
 

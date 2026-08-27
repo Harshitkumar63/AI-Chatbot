@@ -28,6 +28,7 @@ But for now, a simple window works great.
 """
 
 import json
+import re
 from typing import List, Optional
 
 from sqlalchemy import func, select
@@ -108,6 +109,7 @@ class MemoryManager:
         role: MessageRole,
         content: str,
         sources: Optional[List[SourceInfo]] = None,
+        answer_mode: Optional[str] = None,
     ) -> Message:
         """
         Save a message to the database.
@@ -124,6 +126,8 @@ class MemoryManager:
             The message text
         sources : List[SourceInfo], optional
             Source citations (for AI messages)
+        answer_mode : str, optional
+            Answer mode (course_data, rag, direct, hybrid)
 
         Returns
         -------
@@ -140,6 +144,7 @@ class MemoryManager:
             role=role.value,
             content=content,
             sources=sources_json,
+            answer_mode=answer_mode,
         )
 
         session.add(message)
@@ -163,13 +168,7 @@ class MemoryManager:
         window_size: Optional[int] = None,
     ) -> List[dict]:
         """
-        Load recent chat history for a conversation.
-
-        Returns the last N messages as a list of dicts:
-        [
-            {"role": "human", "content": "What is ML?"},
-            {"role": "ai", "content": "ML is..."},
-        ]
+        Load recent chat history for a conversation with balanced human/ai pairing.
 
         Parameters
         ----------
@@ -188,8 +187,6 @@ class MemoryManager:
         if window_size is None:
             window_size = self._settings.MEMORY_WINDOW_SIZE
 
-        # Query the last N messages, ordered by time
-        # We use a subquery to get the latest messages, then reverse the order
         result = await session.execute(
             select(Message)
             .where(Message.conversation_id == conversation_id)
@@ -209,8 +206,83 @@ class MemoryManager:
         logger.debug(
             f"Loaded {len(history)} messages from conversation {conversation_id}."
         )
-
         return history
+
+    def resolve_contextual_query(
+        self,
+        chat_history: List[dict],
+        current_message: str,
+    ) -> str:
+        """
+        Resolve pronoun references in the current message using chat history.
+
+        Examples:
+        - History: "What is Python Development Masterclass?"
+          Current: "Who teaches it?"
+          Resolved: "Who teaches Python Development Masterclass?"
+
+        - History: "Explain recursion"
+          Current: "Give an example in C++"
+          Resolved: "Give an example of recursion in C++"
+        """
+        if not chat_history:
+            return current_message
+
+        text = current_message.strip()
+        lower_text = text.lower()
+
+        # Check if message contains pronouns or continuation phrases
+        pronoun_triggers = [
+            " it", " it?", " this", " that", "its ", "the instructor", "the teacher",
+            "the price", "the fee", "the duration", "the syllabus", "the deadline",
+            "example in ", "code in ", "in c++", "in python", "in java"
+        ]
+        has_pronoun = any(p in lower_text for p in pronoun_triggers) or lower_text.startswith(("who teaches", "how much is", "how long is", "give an example"))
+
+        if not has_pronoun:
+            return current_message
+
+        # Scan previous messages for subject entity
+        last_user_query = ""
+        last_ai_response = ""
+        for msg in reversed(chat_history):
+            if msg["role"] in ("human", "user") and not last_user_query:
+                last_user_query = msg["content"]
+            elif msg["role"] == "ai" and not last_ai_response:
+                last_ai_response = msg["content"]
+
+        # Check for course mentions in recent history
+        course_names = [
+            "Python Development Masterclass",
+            "Machine Learning Foundations & Practice",
+            "Full-Stack Web Development Bootcamp",
+            "Data Structures & Algorithms in C++ & Java",
+            "Generative AI & LLM Application Engineering",
+            "Cloud Computing & DevOps with AWS & Docker",
+            "Data Analytics & Business Intelligence",
+            "Cybersecurity Essentials & Ethical Hacking",
+        ]
+        for c_name in course_names:
+            if c_name.lower() in (last_user_query + " " + last_ai_response).lower():
+                # Replace pronouns or append entity
+                resolved = text
+                if " it" in resolved.lower():
+                    resolved = re.sub(r"\b(it|this|that)\b", c_name, resolved, flags=re.IGNORECASE)
+                elif not any(w.lower() in resolved.lower() for w in c_name.split()[:2]):
+                    resolved = f"{resolved} (referring to {c_name})"
+                return resolved
+
+        # Check for technical concepts (e.g. recursion, binary search, photosynthesis)
+        concept_match = re.search(r"\b(explain|what is|how does)\s+([a-zA-Z0-9\s]+?)(?:\.|\?|$)", last_user_query, re.IGNORECASE)
+        if concept_match:
+            concept = concept_match.group(2).strip()
+            if concept and len(concept) > 2 and concept.lower() not in ("it", "this", "that"):
+                if "example in" in lower_text or "in c++" in lower_text or "in python" in lower_text:
+                    return f"{text} of {concept}"
+                if " it" in lower_text:
+                    return re.sub(r"\b(it|this|that)\b", concept, text, flags=re.IGNORECASE)
+
+        return current_message
 
     async def get_conversations(
         self,
@@ -286,6 +358,7 @@ class MemoryManager:
                 "role": msg.role,
                 "content": msg.content,
                 "sources": sources,
+                "answer_mode": msg.answer_mode,
                 "created_at": msg.created_at,
             })
 
