@@ -73,7 +73,7 @@ export default function MessageBubble({ message }) {
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
-                  code({ node, inline, className, children, ...props }) {
+                  code({ inline, className, children, ...props }) {
                     const match = /language-(\w+)/.exec(className || "");
                     const codeString = String(children).replace(/\n$/, "");
                     const codeId = Math.random().toString(36).substring(2, 9);

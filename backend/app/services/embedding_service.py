@@ -88,13 +88,19 @@ class EmbeddingService:
             )
 
             # HuggingFaceEmbeddings is LangChain's wrapper around sentence-transformers
-            # model_kwargs: passed to the underlying SentenceTransformer model
-            # encode_kwargs: passed to model.encode() when generating embeddings
-            self._model = HuggingFaceEmbeddings(
-                model_name=self._settings.EMBEDDING_MODEL_NAME,
-                model_kwargs={"device": "cpu"},  # Use CPU (works everywhere)
-                encode_kwargs={"normalize_embeddings": True},  # Normalize for cosine similarity
-            )
+            # Try loading from local cache first for instant startup without network timeouts
+            try:
+                self._model = HuggingFaceEmbeddings(
+                    model_name=self._settings.EMBEDDING_MODEL_NAME,
+                    model_kwargs={"device": "cpu", "local_files_only": True},
+                    encode_kwargs={"normalize_embeddings": True},
+                )
+            except Exception:
+                self._model = HuggingFaceEmbeddings(
+                    model_name=self._settings.EMBEDDING_MODEL_NAME,
+                    model_kwargs={"device": "cpu"},
+                    encode_kwargs={"normalize_embeddings": True},
+                )
 
             logger.info("Embedding model loaded successfully.")
 

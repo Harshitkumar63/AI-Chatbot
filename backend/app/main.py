@@ -137,13 +137,24 @@ def create_app() -> FastAPI:
     )
 
     # ---- CORS Middleware ----
-    application.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.cors_origins_list,  # Which domains can access
-        allow_credentials=True,                     # Allow cookies/auth headers
-        allow_methods=["*"],                        # Allow all HTTP methods
-        allow_headers=["*"],                        # Allow all request headers
-    )
+    cors_origins = [origin for origin in settings.cors_origins_list if origin]
+    if "*" in cors_origins:
+        application.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=False,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+    else:
+        application.add_middleware(
+            CORSMiddleware,
+            allow_origins=cors_origins,
+            allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$",
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     # ---- Register API Routes ----
     application.include_router(api_router)

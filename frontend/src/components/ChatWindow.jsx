@@ -17,7 +17,6 @@ import { APP_NAME } from "../utils/constants";
 export default function ChatWindow() {
   const {
     messages,
-    conversationId,
     isStreaming,
     error,
     send,

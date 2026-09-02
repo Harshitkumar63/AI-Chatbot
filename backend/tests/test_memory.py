@@ -125,6 +125,7 @@ async def test_save_and_retrieve_message_with_sources():
         await memory_manager.save_message(session, conv.id, MessageRole.AI, "Course details here", sources=sources)
 
         full_conv = await memory_manager.get_conversation_messages(session, conv.id)
+        assert full_conv is not None
         assert len(full_conv["messages"]) == 1
         saved_sources = full_conv["messages"][0]["sources"]
         assert saved_sources is not None

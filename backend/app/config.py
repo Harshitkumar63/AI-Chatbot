@@ -67,7 +67,11 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str = ""
 
     # Which LLM model to use on Groq
-    LLM_MODEL_NAME: str = "openai/gpt-oss-120b"
+    # Recommended models:
+    # - "qwen/qwen3.8-27b" (Groq Qwen 3.8 27B - replaces deprecated Qwen 3.6 27B)
+    # - "openai/gpt-oss-20b" (High-speed, high rate limits)
+    # - "openai/gpt-oss-120b"
+    LLM_MODEL_NAME: str = "qwen/qwen3.8-27b"
 
     # Max tokens per response (1 token ≈ 0.75 words)
     LLM_MAX_TOKENS: int = 1024
