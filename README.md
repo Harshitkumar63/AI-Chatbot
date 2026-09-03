@@ -275,6 +275,38 @@ docker compose down
 
 ---
 
+### Option C: Deploy to Render (Free Tier)
+
+Render's free tier has a **512 MB disk limit**. This project supports a **lightweight cloud embedding mode** that eliminates the ~2.5 GB PyTorch dependency.
+
+#### 1. Get a Free Hugging Face API Token
+Sign up at [huggingface.co](https://huggingface.co/settings/tokens) and create a free access token.
+
+#### 2. Deploy Backend on Render
+1. Create a new **Web Service** on Render, connect your GitHub repo.
+2. Set the **Root Directory** to `backend`.
+3. Set the **Build Command** to: `pip install -r requirements-render.txt`
+4. Set the **Start Command** to: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+5. Add these **Environment Variables**:
+
+| Variable | Value |
+| :--- | :--- |
+| `GROQ_API_KEY` | Your Groq API key |
+| `HUGGINGFACE_API_KEY` | Your free HF token |
+| `USE_CLOUD_EMBEDDINGS` | `true` |
+| `DEBUG` | `false` |
+| `CORS_ORIGINS` | Your frontend URL |
+
+#### 3. Deploy Frontend on Vercel/Netlify (Recommended)
+The frontend is a static Vite/React app — deploy it separately on **Vercel** or **Netlify** for free:
+1. Connect your repo, set the root directory to `frontend`.
+2. Set the build command to `npm run build` and output directory to `dist`.
+3. Add the env var: `VITE_API_URL=https://your-backend.onrender.com/api`
+
+> **💡 Why split?** Deploying frontend and backend separately keeps each within free-tier limits and gives you CDN-powered static hosting for the frontend.
+
+---
+
 ## ⚙️ Environment Variables Reference
 
 | Variable | Default Value | Description |
@@ -284,6 +316,8 @@ docker compose down
 | `LLM_MAX_TOKENS` | `1024` | Maximum tokens per completion. |
 | `LLM_TEMPERATURE` | `0.7` | Sampling temperature (0.0 = deterministic, 1.0 = creative). |
 | `EMBEDDING_MODEL_NAME`| `all-MiniLM-L6-v2` | SentenceTransformer model used for dense semantic embeddings. |
+| `HUGGINGFACE_API_KEY` | *(empty)* | Free HF API token — required when `USE_CLOUD_EMBEDDINGS=true`. |
+| `USE_CLOUD_EMBEDDINGS`| `false` | Set `true` on Render/Railway to use cloud embeddings (saves ~2.5 GB). |
 | `DATABASE_URL` | `sqlite+aiosqlite:///data/chatbot.db` | SQLAlchemy 2.0 async database connection URI. |
 | `RAG_SIMILARITY_THRESHOLD` | `0.35` | Minimum cosine similarity score required to trigger RAG mode. |
 | `ADMIN_API_KEY` | `eduzyra-admin-secret-key-change-me` | Secret key for `/api/admin/*` administrative routes. |
@@ -324,7 +358,9 @@ AI-Chatbot/
 │
 ├── backend/
 │   ├── Dockerfile                  # Python 3.12 slim multi-stage production Dockerfile
-│   ├── requirements.txt            # Python dependencies
+│   ├── requirements.txt            # Full Python dependencies (includes PyTorch for local dev)
+│   ├── requirements-render.txt     # Lightweight deps for Render/cloud (no PyTorch)
+│   ├── .dockerignore               # Docker build context exclusions
 │   ├── app/
 │   │   ├── main.py                 # FastAPI application factory & lifecycle hooks
 │   │   ├── config.py               # Pydantic v2 settings management

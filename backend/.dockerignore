@@ -1,0 +1,47 @@
+# ============================================
+# Backend — Docker Ignore
+# ============================================
+# Prevents unnecessary files from being included
+# in the Docker build context, reducing image size.
+# ============================================
+
+# Virtual environment (deps are installed fresh in Docker)
+venv/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Tests (not needed in production image)
+tests/
+
+# Environment files (secrets set via platform env vars)
+.env
+.env.local
+.env.example
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Runtime data (created at runtime, not baked into image)
+data/uploads/*
+data/vector_store/*
+data/*.db
+
+# Keep directory structure
+!data/uploads/.gitkeep
+!data/vector_store/.gitkeep
+
+# Documentation
+*.md
+LICENSE
