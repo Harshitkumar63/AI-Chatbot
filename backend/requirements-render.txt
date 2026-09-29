@@ -29,8 +29,9 @@ huggingface-hub>=0.30.0
 faiss-cpu>=1.15.0
 
 # ---- Database ----
-sqlalchemy>=2.0.0
+sqlalchemy[asyncio]>=2.0.0
 aiosqlite>=0.21.0
+greenlet>=3.0.0
 
 # ---- Document Processing ----
 pypdf>=5.0.0
