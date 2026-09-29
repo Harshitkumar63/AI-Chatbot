@@ -97,6 +97,42 @@ PRONOUN_FOLLOW_UPS = [
     r"\b(how\s+much\s+(is\s+it|does\s+it\s+cost))\b",
 ]
 
+# Patterns indicating GENERAL EDUCATIONAL / CONCEPTUAL questions
+# These should ALWAYS route to DIRECT LLM mode, never to course data
+GENERAL_EDUCATION_PATTERNS = [
+    # "What is X?" style concept questions
+    r"^what\s+is\s+(?!.*(course|price|fee|cost|duration|instructor|eduzyra|althexus|this\s+platform))\w",
+    r"^what\s+are\s+(?!.*(course|price|fee|cost|our|eduzyra))\w",
+    # "Explain X", "Define X"
+    r"^(explain|define|describe)\s+",
+    # "How does X work?"
+    r"^how\s+does\s+(?!.*(course|enrollment|eduzyra))\w",
+    r"^how\s+do\s+(?!.*(course|enrollment|eduzyra|i\s+enroll))\w",
+    # "Tell me about X" (concept, not course/platform)
+    r"^tell\s+me\s+about\s+(?!.*(course|eduzyra|althexus|this\s+platform|this\s+website))\w",
+    # Code / programming questions
+    r"\b(write|code|implement|program|create)\s+(a\s+)?(program|function|code|script|algorithm)\b",
+    r"\b(write|code|implement)\s+.+\s+in\s+(python|java|c\+\+|c#|javascript|typescript|go|rust|ruby)",
+    r"\b(binary\s+search|bubble\s+sort|merge\s+sort|quick\s+sort|linked\s+list|stack|queue|hash\s+map)\b",
+    # Conceptual "how to" questions
+    r"^how\s+to\s+(?!.*(enroll|register|sign\s+up|buy|purchase|join))\w",
+    # Difference / comparison of concepts (not courses)
+    r"\b(difference\s+between|what\s+is\s+the\s+difference)\s+(?!.*(course))\w",
+    # Math / Science / Theory questions
+    r"\b(newton|euler|gauss|einstein|theorem|equation|formula|law\s+of|proof|derivat)\b",
+    r"\b(photosynthesis|mitosis|evolution|gravity|quantum|relativity|thermodynamics)\b",
+    # Common CS concepts that are NOT course queries
+    r"^(what|explain|how)\s+.*(recursion|iteration|loop|variable|function|class|object|inheritance|polymorphism|encapsulation|abstraction)\b",
+    r"^(what|explain|how)\s+.*(api|rest\s+api|database|sql|nosql|http|tcp|dns|ip\s+address)\b",
+    r"^(what|explain|how)\s+.*(sorting|searching|hashing|big\s+o|time\s+complexity|space\s+complexity)\b",
+    r"^(what|explain|how)\s+.*(html|css|dom|react\s+hooks?|useState|useEffect|virtual\s+dom|jsx)\b",
+    r"^(what|explain|how)\s+.*(neural\s+network|deep\s+learning|gradient\s+descent|backpropagation|transformer|attention\s+mechanism)\b",
+    # "Give me an example of X"
+    r"\b(give\s+(me\s+)?(an?\s+)?example|show\s+(me\s+)?(an?\s+)?example)\b",
+    # Explicit educational intent markers
+    r"\b(teach\s+me|help\s+me\s+understand|can\s+you\s+explain|i\s+don'?t\s+understand)\b",
+]
+
 
 class AIRouter:
     """
@@ -190,10 +226,16 @@ class AIRouter:
 
         is_explicit_course_mention = has_course_code or has_full_title or has_course_phrase
 
-        # If it's a pure general definition question (e.g. "what is python?"), ensure it's not hijacked by course data
-        is_pure_concept_question = bool(re.match(r"^what\s+is\s+(python|machine\s+learning|ai|html|css|javascript|recursion)\??$", clean_text))
+        has_course_keyword = bool(re.search(r"\b(course|courses|fee|fees|pricing|price|cost|syllabus|curriculum|instructor|faculty|enroll|enrollment)\b", clean_text))
 
-        if (is_course_intent or is_explicit_course_mention) and not is_pure_concept_question and not is_org_policy:
+        # Comprehensive check: Is this a general educational/conceptual question?
+        # A question is general education only if it does NOT target an explicit course title, code, or course keyword
+        is_general_education = (
+            any(re.search(p, clean_text) for p in GENERAL_EDUCATION_PATTERNS)
+            and not (has_full_title or has_course_code or has_course_keyword)
+        )
+
+        if (is_course_intent or is_explicit_course_mention) and not is_general_education and not is_org_policy:
             logger.info("Router: Course-related intent identified.")
 
             # Search database for relevant courses

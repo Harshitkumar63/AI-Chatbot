@@ -68,16 +68,18 @@ class Settings(BaseSettings):
 
     # Which LLM model to use on Groq
     # Recommended models:
-    # - "qwen/qwen3.8-27b" (Groq Qwen 3.8 27B - replaces deprecated Qwen 3.6 27B)
+    # - "llama-3.3-70b-versatile" (Best quality, follows instructions well)
+    # - "qwen/qwen3.8-27b" (Groq Qwen 3.8 27B - good fallback)
     # - "openai/gpt-oss-20b" (High-speed, high rate limits)
-    # - "openai/gpt-oss-120b"
-    LLM_MODEL_NAME: str = "qwen/qwen3.8-27b"
+    # NOTE: Avoid llama-3.1-8b-instant — too small, hallucinates course data
+    LLM_MODEL_NAME: str = "llama-3.3-70b-versatile"
 
     # Max tokens per response (1 token ≈ 0.75 words)
     LLM_MAX_TOKENS: int = 1024
 
     # Temperature: 0.0 = focused/deterministic, 1.0 = creative/random
-    LLM_TEMPERATURE: float = 0.7
+    # 0.4 gives consistent factual answers; 0.7+ causes hallucination with small models
+    LLM_TEMPERATURE: float = 0.4
 
     # ---- Embedding Model ----
     EMBEDDING_MODEL_NAME: str = "all-MiniLM-L6-v2"
