@@ -104,11 +104,16 @@ class EmbeddingService:
             logger.debug("Embedding model already initialized.")
             return
 
-        # Decide which backend to use based on config
-        use_cloud = (
-            self._settings.USE_CLOUD_EMBEDDINGS
-            and self._settings.HUGGINGFACE_API_KEY
-        )
+        # Check if local sentence_transformers is available
+        has_local = False
+        try:
+            import sentence_transformers  # noqa: F401
+            has_local = True
+        except ImportError:
+            has_local = False
+
+        # Use cloud if requested OR if local sentence-transformers is not installed (e.g. Render)
+        use_cloud = self._settings.USE_CLOUD_EMBEDDINGS or not has_local
 
         try:
             if use_cloud:
@@ -116,11 +121,16 @@ class EmbeddingService:
             else:
                 self._initialize_local()
 
-            logger.info("Embedding model loaded successfully.")
+            if self._model is not None:
+                logger.info("Embedding model loaded successfully.")
 
         except Exception as e:
-            logger.error(f"Failed to load embedding model: {e}")
-            raise VectorStoreError(f"Failed to initialize embedding model: {e}") from e
+            logger.warning(
+                f"Embedding model could not be initialized: {e}. "
+                "Document RAG search will be in standby mode until configured. "
+                "Course catalog and general AI chat remain fully operational."
+            )
+            self._model = None
 
     def _initialize_cloud(self) -> None:
         """
@@ -136,9 +146,11 @@ class EmbeddingService:
             f"Initializing CLOUD embeddings via HF Inference API: {model_id}"
         )
 
+        hf_token = self._settings.HUGGINGFACE_API_KEY.strip() if self._settings.HUGGINGFACE_API_KEY else None
+
         self._model = HuggingFaceEndpointEmbeddings(
             model=model_id,
-            huggingfacehub_api_token=self._settings.HUGGINGFACE_API_KEY,
+            huggingfacehub_api_token=hf_token,
         )
         self._is_cloud = True
 

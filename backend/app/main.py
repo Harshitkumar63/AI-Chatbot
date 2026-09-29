@@ -86,12 +86,21 @@ async def lifespan(app: FastAPI):
     logger.info("✅ Database initialized")
 
     # Step 2: Load the embedding model
-    await embedding_service.initialize()
-    logger.info("✅ Embedding model loaded")
+    try:
+        await embedding_service.initialize()
+        if embedding_service.is_initialized:
+            logger.info("✅ Embedding model loaded")
+        else:
+            logger.warning("⚠️ Embedding model in standby (Document search requires HUGGINGFACE_API_KEY)")
+    except Exception as e:
+        logger.warning(f"⚠️ Embedding model initialization note: {e}")
 
     # Step 3: Load the FAISS vector store (if index exists)
-    await vector_store_service.initialize()
-    logger.info("✅ Vector store initialized")
+    try:
+        await vector_store_service.initialize()
+        logger.info("✅ Vector store initialized")
+    except Exception as e:
+        logger.warning(f"⚠️ Vector store initialization note: {e}")
 
     # Step 4: Initialize the LLM client
     await llm_service.initialize()
